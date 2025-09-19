@@ -4,13 +4,13 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-
 pid = 3
 patients = {1: 'sub-603cf699f88f', 2: 'sub-2ed87927ff76', 3: 'sub-0c7ab65949e1', 4: 'sub-9c71d0dbd98f', 5: 'sub-4b4606a742bd'}
 stim_data_path = '/Users/dollomab/MyProjects/Stimulation/Project_DBS_neural_fields/'
 
 
 iterable_params_choi_all_patients = []
+iterable_params_all_patients = []
 for pid in range(1, 6):
     print(f'Patient ID: {pid}, BIDS ID: {patients[pid]}')
     # %% Load stimulation parameters
@@ -41,7 +41,8 @@ for pid in range(1, 6):
                                     'tau': float(df['pulse_width'][stim_index]),  # microseconds
                                     'sfreq': 512,  # Hz
                                     'stim_index': stim_index,
-                                    'induced_seizure': df['induced_seizure'][stim_index]
+                                    'induced_seizure': df['induced_seizure'][stim_index],
+                                    'patient': patients[pid]
                                     }
         else:
             stimulation_parameters = {'choi': channels[0] + channel_nr[0] + '-' + channel_nr[1],
@@ -51,9 +52,12 @@ for pid in range(1, 6):
                                     'tau': float(df['pulse_width'][stim_index]),  # microseconds
                                     'sfreq': 512,  # Hz
                                     'stim_index': stim_index,
-                                    'induced_seizure': df['induced_seizure'][stim_index]
+                                    'induced_seizure': df['induced_seizure'][stim_index],
+                                    'patient': patients[pid]
                                     }
         iterable_params.append(stimulation_parameters)
+        
+    iterable_params_all_patients.extend(iterable_params)
 
     #%% Take only list of stimulations where the pair of electrodes triggered at least one seizure
     induced_seizures = df['induced_seizure']
@@ -73,15 +77,15 @@ for pid in range(1, 6):
     iterable_params_choi_all_patients.extend(iterable_params_choi)
 
 #%% Logistic regression
-X = np.array([[item['freq'], item['amp'], item['duration'], item['tau']] for item in iterable_params_choi_all_patients])
+# X = np.array([[item['freq'], item['amp'], item['duration']] for item in iterable_params_choi_all_patients])
+
+X = np.array([[item['freq'], item['amp']] for item in iterable_params_choi_all_patients])
 X = sm.add_constant(X)  # adding a constant
 y = np.array([item['induced_seizure'] for item in iterable_params_choi_all_patients])
 
 model = sm.Logit(y, X)
 result = model.fit()
 print(result.summary())
-print(result.summary2())
-
 
 '''
 The output gives you coefficients (β) and p-values.
@@ -95,7 +99,40 @@ Example:
 Frequency coefficient β = 2.3 → OR = 10 → 50 Hz stimulations are 10×
  more likely to cause seizures than 1 Hz (controlling for other factors).'''
 
+#%% Firth penalized logistic regression to reduce bias in small datasets and handle quasi-separation
+from firthlogist import FirthLogisticRegression
+
+X = np.array([[item['freq'], item['amp']] for item in iterable_params_choi_all_patients])
+y = np.array([item['induced_seizure'] for item in iterable_params_choi_all_patients])
+model = FirthLogisticRegression().fit(X, y)
+print(model.summary())
+
+# Doing the same regression with the entire dataset 
+X = np.array([[item['freq'], item['amp']] for item in iterable_params_all_patients])
+y = np.array([item['induced_seizure'] for item in iterable_params_all_patients])
+model = FirthLogisticRegression().fit(X, y)
+print(model.summary())
+
+#%% Conditional logistic regression to account for repeated measures from the same electrode pairs
+# Cox regression with constant time, stratified by electrode
+# 'status' is seizure outcome, 'duration' is dummy (e.g., all 1)
+from statsmodels.duration.hazard_regression import PHReg
+
+data = pd.DataFrame(iterable_params_choi_all_patients)
+# data = pd.DataFrame(iterable_params_all_patients)
+
+
+data["stratum"] = data["patient"].astype(str) + "_" + data["choi"].astype(str)
+data["duration"] = 1
+
+model = PHReg.from_formula("duration ~ freq + amp", status="induced_seizure", strata="stratum", data=data)
+result = model.fit()
+print(result.summary())
+
+# NOTE Conditional logistic regression automatically ignores strata with no events: CLR naturally focuses only on electrodes where at least one seizure occurred
 
  #%% TODO idea 
  # Do linear regression on the same dataset but with the response variable being stimulation frequency based on 
  # whether a seizure was induced or not. # This would give an idea of what frequency is more likely to induce a seizure.
+
+ # add to the regression maybe: distance to the SOZ # if the distance is smaller, the probability of inducing a seizure is higher
