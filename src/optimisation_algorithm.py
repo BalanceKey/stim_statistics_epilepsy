@@ -106,7 +106,7 @@ def run_model(m_thresholds):
         induced_seizure_sim = False
         for i in range(m_thresholds.size):
             if m_max[i] > m_thresholds[i]:
-                print(f"Seizure induced in region index {i}: {roi[i]}")
+                # print(f"Seixzure induced in region index {i}: {roi[i]}")
                 # regions_induced_seizure.append(i)  # add regions where seizure was induced
                 induced_seizure_sim = True
         stim_sim_response_list.append(induced_seizure_sim)
@@ -118,22 +118,31 @@ def run_model(m_thresholds):
 
 #%%  Loss function
 # Similarity metric: Hamming loss (proportion of mismatches)
-def hamming_loss(empirical, simulated):
-    return np.mean(empirical != simulated)
-# TODO why is it 1 ??? 
+# def hamming_loss(empirical, simulated):
+    # return np.mean(empirical != simulated)
+def jaccard_similarity_loss(emp_binary_responses, sim_binary_responses):
+    intersection = np.sum((emp_binary_responses == 1) & (sim_binary_responses == 1))
+    union = np.sum((emp_binary_responses == 1) | (sim_binary_responses == 1))
+    if union == 0:
+        return 0.0          # define Jaccard as 0 if both are all zeros
+    jaccard_index = intersection / union  
+    return 1-jaccard_index   # negative because optimizer minimizes
 
 #%%  Optimisation algorithm
 # Objective function for optimization
 empirical = stim_emp_response_list
 def objective(params):
     # Run multiple simulations to smooth out randomness
-    sims = [run_model(params) for _ in range(5)]
-    losses = [hamming_loss(empirical, s) for s in sims]
+    sims = [run_model(params) for _ in range(3)] # average if stochastic
+    losses = [jaccard_similarity_loss(empirical, s) for s in sims]
     return np.mean(losses)
 
 # Parameter bounds (example: probability between 0 and 1)
 bounds = [(0.1, 21)] * n_regions
 
-result = differential_evolution(objective, bounds, maxiter=50, popsize=15, tol=1e-3)
+result = differential_evolution(objective, bounds, maxiter=50, popsize=15, tol=1e-2)
 print("Best parameters:", result.x)
 print("Best loss:", result.fun)
+
+stim_sim_response_list = run_model(result.x)
+plot_stimulation_responses(stim_sim_response_list, stim_emp_response_list)
