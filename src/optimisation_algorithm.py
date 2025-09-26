@@ -55,6 +55,8 @@ bip_gain_prior_norm = (bip_gain_prior - bip_gain_prior.min()) / (bip_gain_prior.
 if patients[pid] == 'sub-603cf699f88f':
      EZ_clinical = ['Right-Temporal-pole', 'Right-Hippocampus-anterior', 'Right-Amygdala', 'Right-Rhinal-cortex',
               'Right-Insula-gyri-brevi', 'Right-Insula-gyri-longi']
+     EZ_test = ['Right-Temporal-pole', 'Right-Hippocampus-anterior', 'Right-Hippocampus-posterior', 'Right-Amygdala', 'Right-Rhinal-cortex',
+              'Right-Insula-gyri-brevi', 'Right-Insula-gyri-longi', 'Left-Hippocampus-anterior', 'Left-Hippocampus-posterior', 'Left-Amygdala']
 elif patients[pid] == 'sub-2ed87927ff76':
     EZ_clinical = ['Right-Hippocampus-anterior', 'Right-Hippocampus-posterior', 'Right-Rhinal-cortex',
                    'Right-Amygdala', 'Right-Parahippocampal-cortex', 'Left-Hippocampus-anterior']
@@ -70,7 +72,7 @@ elif patients[pid] == 'sub-4b4606a742bd':
     EZ_clinical = ['Right-Orbito-frontal-cortex']
 else:   
     print(f"Unknown type {type} for patient {patients[pid]} !")
-EZ = EZ_clinical
+EZ = EZ_test
 print(f"Using EZ hypothesis for patient {patients[pid]}: {EZ}")
 
 # Compute seizure threshold from EZ vector
@@ -90,7 +92,6 @@ ez_x0_vector = np.ones(len(EZ)) * -1.6
 ez_m_thresholds = 20 / (1 + np.exp(10*(ez_x0_vector + 2.1))) + 1
 
 def run_model_2(ez_m_thresholds):
-
     m_thresholds = 20 / (1 + np.exp(10*(x0_vector + 2.1))) + 1 
     m_thresholds[ez_idx] = ez_m_thresholds
 
@@ -154,13 +155,6 @@ def run_model_1(m_thresholds):
 # Similarity metric: Hamming loss (proportion of mismatches)
 # def hamming_loss(empirical, simulated):
     # return np.mean(empirical != simulated)
-# def jaccard_similarity_loss(emp_binary_responses, sim_binary_responses):
-#     intersection = np.sum((emp_binary_responses == 1) & (sim_binary_responses == 1))
-#     union = np.sum((emp_binary_responses == 1) | (sim_binary_responses == 1))
-#     if union == 0:
-#         return 0.0          # define Jaccard as 0 if both are all zeros
-#     jaccard_index = intersection / union  
-#     return -jaccard_index   # negative because optimizer minimizes
 
 def jaccard_similarity_loss(emp, sim):
     emp = np.asarray(emp, dtype=bool)
@@ -176,33 +170,50 @@ def similarity_loss(emp_binary_responses, sim_binary_responses):
 
 
 #%%  Optimisation algorithm
-# Objective function for optimization
+
+infer_all_regions = True
 empirical = stim_emp_response_list
-def objective(params):
-    # Run multiple simulations to smooth out randomness
-    sims = [run_model_2(params) for _ in range(3)] # average if stochastic
-    losses = [jaccard_similarity_loss(empirical, s) for s in sims]
-    # losses = [similarity_loss(empirical, s) for s in sims]
-    # val = np.mean(losses)
-    # print(params, val)   # DEBUG
-    return np.mean(losses)
+if not infer_all_regions:
+    # Objective function for optimization
+    def objective(params):
+        # Run multiple simulations to smooth out randomness
+        sims = [run_model_2(params) for _ in range(3)] # average if stochastic
+        losses = [jaccard_similarity_loss(empirical, s) for s in sims]
+        # losses = [similarity_loss(empirical, s) for s in sims]
+        # val = np.mean(losses)
+        # print(val)
+        return np.mean(losses)
 
-# Parameter bounds (example: probability between 0 and 1)
-# bounds = [(0.1, 21)] * n_regions
-bounds = [(0.05, 10)] * len(EZ)
+    # Parameter bounds (example: probability between 0 and 1)
+    bounds = [(0.05, 10)] * len(EZ)
+else:
+    bounds = [(0.05, 10)] * n_regions 
+    # Objective function for optimization
+    def objective(params):
+        # Run multiple simulations to smooth out randomness
+        sims = [run_model_1(params) for _ in range(3)] # average if stochastic
+        losses = [jaccard_similarity_loss(empirical, s) for s in sims]
+        # losses = [similarity_loss(empirical, s) for s in sims]
+        val = np.mean(losses)
+        print(val)
+        return np.mean(losses)
 
-result = differential_evolution(objective, bounds, maxiter=200, popsize=15, tol=1e-3)
+result = differential_evolution(objective, bounds, maxiter=20, popsize=2)
+# result = differential_evolution(objective, bounds, maxiter=150, popsize=15, tol=1e-2)
 print("Best parameters:", result.x)
 print("Best loss:", result.fun)
 print("Best Jaccard similarity:", -result.fun)
 
-stim_sim_response_list = run_model_2(result.x)
+if not infer_all_regions:
+    stim_sim_response_list = run_model_2(result.x)
+else:
+    stim_sim_response_list = run_model_1(result.x)
+
 plot_stimulation_responses(stim_sim_response_list, stim_emp_response_list)
 
 # Maybe try to reduce the optimization problem to only the initial EZ
 # keep the other regions to be non epileptogenic
 # and only try to adjust the 5-6 EZ values 
-
 
 # test_sim = run_model_2([0.5,0.5,0.5,0.5,0.5,0.5])  # pick any params
 # # print("Sim ones:", np.sum(test_sim))
