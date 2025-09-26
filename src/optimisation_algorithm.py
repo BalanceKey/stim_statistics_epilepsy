@@ -85,8 +85,42 @@ m_thresholds_initial=epileptors_threshold
 # Example: params -> simulated vector
 epileptors_r2 = np.ones(n_regions) * (0.002)
 m_thresholds = m_thresholds_initial
-def run_model(m_thresholds):
 
+ez_x0_vector = np.ones(len(EZ)) * -1.6
+ez_m_thresholds = 20 / (1 + np.exp(10*(ez_x0_vector + 2.1))) + 1
+
+def run_model_2(ez_m_thresholds):
+
+    m_thresholds = 20 / (1 + np.exp(10*(x0_vector + 2.1))) + 1 
+    m_thresholds[ez_idx] = ez_m_thresholds
+
+    stim_sim_response_list = []
+    # compute for each stimulus if a seizure is triggered or not in the model
+    for stim_parameter in stimulation_parameters_list:
+        stim_weights = bip_gain_prior_norm[bip_names.index(stim_parameter['choi'])]  # stimulation weights for the chosen channel
+        sfreq = stim_parameter['sfreq']/4                         # how many steps there are in one second
+        T = 1 / stim_parameter['freq'] * sfreq                    # pulse repetition period [s]
+        tau = stim_parameter['tau']/1000000 * sfreq               # pulse duration, number of steps [microsec]
+        I = stim_parameter['amp']                                 # pulse intensity [mA]
+
+        A = stim_weights * I                                              # amplitude of the stimulus for each region
+        d = tau * 2                                                       # duration of the stimulus in seconds
+        N = stim_parameter['duration'] * stim_parameter['freq']           # number of pulses
+        m_max = np.zeros(n_regions)                 # compute m max analytically from the stimulus timeseries
+        m_max[:] = (20 * A[:] / 0.3) * (1 - np.exp(-0.3 * epileptors_r2[:] * d)) * (1 - np.exp(-0.3 * epileptors_r2[:] * N * T)) / (1 - np.exp(-0.3*epileptors_r2[:]*T))
+
+        # Check if a seizure was triggered or not
+        induced_seizure_sim = False
+        for i in range(m_thresholds.size):
+            if m_max[i] > m_thresholds[i]:
+                # print(f"Seizure induced in region index {i}: {roi[i]}")
+                # regions_induced_seizure.append(i)  # add regions where seizure was induced
+                induced_seizure_sim = True
+        stim_sim_response_list.append(induced_seizure_sim)
+
+    return stim_sim_response_list
+
+def run_model_1(m_thresholds):
     stim_sim_response_list = []
     # compute for each stimulus if a seizure is triggered or not in the model
     for stim_parameter in stimulation_parameters_list:
@@ -120,29 +154,58 @@ def run_model(m_thresholds):
 # Similarity metric: Hamming loss (proportion of mismatches)
 # def hamming_loss(empirical, simulated):
     # return np.mean(empirical != simulated)
-def jaccard_similarity_loss(emp_binary_responses, sim_binary_responses):
-    intersection = np.sum((emp_binary_responses == 1) & (sim_binary_responses == 1))
-    union = np.sum((emp_binary_responses == 1) | (sim_binary_responses == 1))
+# def jaccard_similarity_loss(emp_binary_responses, sim_binary_responses):
+#     intersection = np.sum((emp_binary_responses == 1) & (sim_binary_responses == 1))
+#     union = np.sum((emp_binary_responses == 1) | (sim_binary_responses == 1))
+#     if union == 0:
+#         return 0.0          # define Jaccard as 0 if both are all zeros
+#     jaccard_index = intersection / union  
+#     return -jaccard_index   # negative because optimizer minimizes
+
+def jaccard_similarity_loss(emp, sim):
+    emp = np.asarray(emp, dtype=bool)
+    sim = np.asarray(sim, dtype=bool)
+    intersection = np.sum(emp & sim)
+    union = np.sum(emp | sim)
     if union == 0:
-        return 0.0          # define Jaccard as 0 if both are all zeros
-    jaccard_index = intersection / union  
-    return 1-jaccard_index   # negative because optimizer minimizes
+        return 0.0
+    return -(intersection / union)
+
+def similarity_loss(emp_binary_responses, sim_binary_responses):
+    return - np.sum(emp_binary_responses == sim_binary_responses) / len(emp_binary_responses)
+
 
 #%%  Optimisation algorithm
 # Objective function for optimization
 empirical = stim_emp_response_list
 def objective(params):
     # Run multiple simulations to smooth out randomness
-    sims = [run_model(params) for _ in range(3)] # average if stochastic
+    sims = [run_model_2(params) for _ in range(3)] # average if stochastic
     losses = [jaccard_similarity_loss(empirical, s) for s in sims]
+    # losses = [similarity_loss(empirical, s) for s in sims]
+    # val = np.mean(losses)
+    # print(params, val)   # DEBUG
     return np.mean(losses)
 
 # Parameter bounds (example: probability between 0 and 1)
-bounds = [(0.1, 21)] * n_regions
+# bounds = [(0.1, 21)] * n_regions
+bounds = [(0.05, 10)] * len(EZ)
 
-result = differential_evolution(objective, bounds, maxiter=50, popsize=15, tol=1e-2)
+result = differential_evolution(objective, bounds, maxiter=200, popsize=15, tol=1e-3)
 print("Best parameters:", result.x)
 print("Best loss:", result.fun)
+print("Best Jaccard similarity:", -result.fun)
 
-stim_sim_response_list = run_model(result.x)
+stim_sim_response_list = run_model_2(result.x)
 plot_stimulation_responses(stim_sim_response_list, stim_emp_response_list)
+
+# Maybe try to reduce the optimization problem to only the initial EZ
+# keep the other regions to be non epileptogenic
+# and only try to adjust the 5-6 EZ values 
+
+
+# test_sim = run_model_2([0.5,0.5,0.5,0.5,0.5,0.5])  # pick any params
+# # print("Sim ones:", np.sum(test_sim))
+# print("Jaccard with empirical:", -jaccard_similarity_loss(empirical, test_sim))
+# plot_stimulation_responses(test_sim, stim_emp_response_list)
+
