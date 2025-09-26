@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import differential_evolution
 from tvb.simulator.lab import *
+import matplotlib.pyplot as plt
 from utils import load_stimulation_parameters, plot_stimulation_responses
 import sys
 sys.path.append('/Users/dollomab/MyProjects/Stimulation/VirtualEpilepsySurgery/VEP/core/')
@@ -187,7 +188,7 @@ if not infer_all_regions:
     # Parameter bounds (example: probability between 0 and 1)
     bounds = [(0.05, 10)] * len(EZ)
 else:
-    bounds = [(0.05, 10)] * n_regions 
+    bounds = [(0.05, 20)] * n_regions 
     # Objective function for optimization
     def objective(params):
         # Run multiple simulations to smooth out randomness
@@ -198,7 +199,7 @@ else:
         print(val)
         return np.mean(losses)
 
-result = differential_evolution(objective, bounds, maxiter=20, popsize=2)
+result = differential_evolution(objective, bounds, maxiter=50, popsize=2)
 # result = differential_evolution(objective, bounds, maxiter=150, popsize=15, tol=1e-2)
 print("Best parameters:", result.x)
 print("Best loss:", result.fun)
@@ -210,6 +211,24 @@ else:
     stim_sim_response_list = run_model_1(result.x)
 
 plot_stimulation_responses(stim_sim_response_list, stim_emp_response_list)
+
+# Plot results in heatmap form
+
+plt.figure(figsize=(20, 2), tight_layout=True)
+heatmap = np.abs(m_thresholds-m_thresholds.max())
+plt.bar(np.r_[0:n_regions], result.x, color='red', alpha=0.5)
+# plt.bar(np.r_[0:n_regions], np.exp(m_thresholds_initial), color='grey', alpha=0.5)
+plt.xticks(np.r_[:len(roi)], roi, rotation=90, fontsize=8)
+plt.title(f'Updated heatmap', fontsize=20)
+# plt.ylim(0, m_thresholds.max())
+plt.xlim(0, n_regions)
+plt.show()
+
+# If satisfied, save results and loss
+save_inference = False
+if save_inference:
+    save_path = '/Users/dollomab/MyProjects/Stimulation/stim_statistics_epilepsy/results/'
+    np.savez_compressed(f'{save_path}/differential_evolution_results.npz', parameters = result.x, loss = result.fun)
 
 # Maybe try to reduce the optimization problem to only the initial EZ
 # keep the other regions to be non epileptogenic
