@@ -194,7 +194,7 @@ def run_multiple(bounds, obj, n_runs=50, n_processes=50):
     with mp.Pool(processes=n_processes) as pool:
         for i in range(n_runs):
             res = differential_evolution(
-                obj, bounds, maxiter=50, popsize=3,
+                obj, bounds, maxiter=100, popsize=3,
                 workers=pool.map, updating="deferred"
             )
             print(f"Itr {i} - Best Jaccard similarity:", -res.fun)
@@ -229,5 +229,5 @@ avg_stim_sim_response = stim_sim_response_all.mean(axis=0)
 # If satisfied, save results and loss
 save_inference = True
 if save_inference:
-    save_path = '/Users/dollomab/MyProjects/Stimulation/stim_statistics_epilepsy/results/'
-    np.savez_compressed(f'{save_path}/{patients[pid]}_diff_evolution_results_{N}_times.npz', parameters = avg_stim_sim_response, parameters_all = stim_sim_response_all, loss = loss_all)
+   save_path = '/home/epinov/dollomab/stim_statistics_epilepsy/results/'
+   np.savez_compressed(f'{save_path}/{patients[pid]}_diff_evolution_results_{N}_times.npz', parameters = avg_stim_sim_response, parameters_all = stim_sim_response_all, loss = loss_all)
