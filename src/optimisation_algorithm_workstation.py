@@ -5,6 +5,7 @@ Input: Empirical binary vector (seizure/no seizure) and corresponding stimulatio
 Output: Optimal epileptogenic values that best match the empirical binary vector 
 
 '''
+import multiprocessing as mp
 import numpy as np
 import pandas as pd
 from scipy.optimize import differential_evolution
@@ -12,7 +13,7 @@ from tvb.simulator.lab import *
 import matplotlib.pyplot as plt
 from utils import load_stimulation_parameters, plot_stimulation_responses
 import sys
-sys.path.append('/Users/dollomab/MyProjects/Stimulation/VirtualEpilepsySurgery/VEP/core/')
+sys.path.append('/home/epinov/dollomab/VirtualEpilepsySurgery/VEP/core/')
 import vep_prepare 
 
 #%% Empirical data 
@@ -187,32 +188,46 @@ else:
         return np.mean(losses)
 
 # Run the differential evolution N times
-N = 10
-stim_sim_response_all = np.empty((N, n_regions))
-loss_all = np.empty((N))
+def run_multiple(bounds, obj, n_runs=50, n_processes=50):
+    results = np.empty((n_runs, n_regions))
+    losses = np.empty((n_runs))
+    with mp.Pool(processes=n_processes) as pool:
+        for i in range(n_runs):
+            res = differential_evolution(
+                obj, bounds, maxiter=50, popsize=3,
+                workers=pool.map, updating="deferred"
+            )
+            print(f"Itr {i} - Best Jaccard similarity:", -res.fun)
+            results[i] = res.x
+            losses[i] = res.fun
+    return results, losses
 
-for i in range(N):
-    print(i)
-    result = differential_evolution(objective, bounds, maxiter=50, popsize=2)
-    # result = differential_evolution(objective, bounds, maxiter=150, popsize=15, tol=1e-2)
-    print("Best parameters:", result.x)
-    print("Best loss:", result.fun)
-    print("Best Jaccard similarity:", -result.fun)
-
-    stim_sim_response_all[i] = result.x
-    loss_all[i] = result.fun
+# stim_sim_response_all = np.empty((N, n_regions))
+# loss_all = np.empty((N))
+# for i in range(N):
+#     print(i)
+#     result = differential_evolution(objective, bounds, maxiter=50, popsize=2)
+#     # result = differential_evolution(objective, bounds, maxiter=150, popsize=15, tol=1e-2)
+#     print("Best parameters:", result.x)
+#     print("Best loss:", result.fun)
+#     print("Best Jaccard similarity:", -result.fun)
+#     stim_sim_response_all[i] = result.x
+#     loss_all[i] = result.fun
+N = 100
+n_processes = 50
+stim_sim_response_all, loss_all = run_multiple(bounds, N, n_processes)
 
 avg_stim_sim_response = stim_sim_response_all.mean(axis=0)
 # avg_stim_sim_response_norm = (avg_stim_sim_response - avg_stim_sim_response.min()) / (avg_stim_sim_response.max() - avg_stim_sim_response.min())
 
-if not infer_all_regions:
-    stim_sim_response_list = run_model_2(result.x)
-else:
-    stim_sim_response_list = run_model_1(result.x)
+# if not infer_all_regions:
+#     stim_sim_response_list = run_model_2(result.x)
+# else:
+#     stim_sim_response_list = run_model_1(result.x)
 
 # plot_stimulation_responses(stim_sim_response_list, stim_emp_response_list)
 # If satisfied, save results and loss
-save_inference = False
+save_inference = True
 if save_inference:
     save_path = '/Users/dollomab/MyProjects/Stimulation/stim_statistics_epilepsy/results/'
     np.savez_compressed(f'{save_path}/{patients[pid]}_diff_evolution_results_{N}_times.npz', parameters = avg_stim_sim_response, parameters_all = stim_sim_response_all, loss = loss_all)
