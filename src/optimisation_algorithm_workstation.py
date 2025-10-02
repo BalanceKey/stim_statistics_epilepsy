@@ -5,7 +5,6 @@ Input: Empirical binary vector (seizure/no seizure) and corresponding stimulatio
 Output: Optimal epileptogenic values that best match the empirical binary vector 
 
 '''
-
 import numpy as np
 import pandas as pd
 from scipy.optimize import differential_evolution
@@ -19,8 +18,8 @@ import vep_prepare
 #%% Empirical data 
 pid = 1
 patients = {1: 'sub-603cf699f88f', 2: 'sub-2ed87927ff76', 3: 'sub-0c7ab65949e1', 4: 'sub-9c71d0dbd98f', 5: 'sub-4b4606a742bd'}
-subject_dir = f'/Users/dollomab/MyProjects/Epinov_trial/patients/{patients[pid]}/vep'
-stimulation_data = f'~/MyProjects/Stimulation/Project_DBS_neural_fields/stimulation_data_manager_{patients[pid]}.csv'
+subject_dir = f'/data/vep/{patients[pid]}/'
+stimulation_data = f'/home/epinov/dollomab/SEEG_stimulation_neural_fields/stimulation_data_manager_{patients[pid]}.csv'
 # Load stimulation parameters
 stimulation_parameters_list = load_stimulation_parameters(pid, patients, stimulation_data)
 stim_emp_response_list = [stimulation['induced_seizure'] for stimulation in stimulation_parameters_list]
@@ -149,14 +148,7 @@ def run_model_1(m_thresholds):
 
     return stim_sim_response_list
 
-# stim_sim_response_list = run_model(m_thresholds, stimulation_parameters_list)
-# plot_stimulation_responses(stim_sim_response_list, stim_emp_response_list)
-
 #%%  Loss function
-# Similarity metric: Hamming loss (proportion of mismatches)
-# def hamming_loss(empirical, simulated):
-    # return np.mean(empirical != simulated)
-
 def jaccard_similarity_loss(emp, sim):
     emp = np.asarray(emp, dtype=bool)
     sim = np.asarray(sim, dtype=bool)
@@ -166,12 +158,7 @@ def jaccard_similarity_loss(emp, sim):
         return 0.0
     return -(intersection / union)
 
-def similarity_loss(emp_binary_responses, sim_binary_responses):
-    return - np.sum(emp_binary_responses == sim_binary_responses) / len(emp_binary_responses)
-
-
 #%%  Optimisation algorithm
-
 infer_all_regions = True
 empirical = stim_emp_response_list
 if not infer_all_regions:
@@ -200,7 +187,7 @@ else:
         return np.mean(losses)
 
 # Run the differential evolution N times
-N = 30 # started 11:04
+N = 10
 stim_sim_response_all = np.empty((N, n_regions))
 loss_all = np.empty((N))
 
@@ -216,45 +203,16 @@ for i in range(N):
     loss_all[i] = result.fun
 
 avg_stim_sim_response = stim_sim_response_all.mean(axis=0)
-avg_stim_sim_response_norm = (avg_stim_sim_response - avg_stim_sim_response.min()) / (avg_stim_sim_response.max() - avg_stim_sim_response.min())
-
-plt.figure(figsize=(20, 2), tight_layout=True)
-plt.bar(np.r_[0:n_regions], 1 - avg_stim_sim_response_norm, color='red', alpha=0.5)
-# plt.bar(np.r_[0:n_regions], stim_sim_response_all.std(axis=0), color='red', alpha=0.5)
-plt.xticks(np.r_[:len(roi)], roi, rotation=90, fontsize=8)
-plt.title(f'Updated heatmap', fontsize=20)
-plt.xlim(0, n_regions)
-plt.show()
+# avg_stim_sim_response_norm = (avg_stim_sim_response - avg_stim_sim_response.min()) / (avg_stim_sim_response.max() - avg_stim_sim_response.min())
 
 if not infer_all_regions:
     stim_sim_response_list = run_model_2(result.x)
 else:
-    stim_sim_response_list = run_model_1(avg_stim_sim_response)
-    # stim_sim_response_list = run_model_1(result.x)
+    stim_sim_response_list = run_model_1(result.x)
 
-plot_stimulation_responses(stim_sim_response_list, stim_emp_response_list)
-
-# Plot results in heatmap form
-plt.figure(figsize=(20, 2), tight_layout=True)
-heatmap = np.abs(m_thresholds-m_thresholds.max())
-plt.bar(np.r_[0:n_regions], m_thresholds_initial, color='grey', alpha=0.5)
-plt.bar(np.r_[0:n_regions], result.x, color='red', alpha=0.5)
-plt.xticks(np.r_[:len(roi)], roi, rotation=90, fontsize=8)
-plt.title(f'Updated heatmap', fontsize=20)
-# plt.ylim(0, m_thresholds.max())
-plt.xlim(0, n_regions)
-plt.show()
-
+# plot_stimulation_responses(stim_sim_response_list, stim_emp_response_list)
 # If satisfied, save results and loss
 save_inference = False
 if save_inference:
     save_path = '/Users/dollomab/MyProjects/Stimulation/stim_statistics_epilepsy/results/'
     np.savez_compressed(f'{save_path}/{patients[pid]}_diff_evolution_results_{N}_times.npz', parameters = avg_stim_sim_response, parameters_all = stim_sim_response_all, loss = loss_all)
-
-# Maybe try to reduce the optimization problem to only the initial EZ
-# keep the other regions to be non epileptogenic
-# and only try to adjust the 5-6 EZ values 
-# test_sim = run_model_2([0.5,0.5,0.5,0.5,0.5,0.5])  # pick any params
-# # print("Sim ones:", np.sum(test_sim))
-# print("Jaccard with empirical:", -jaccard_similarity_loss(empirical, test_sim))
-# plot_stimulation_responses(test_sim, stim_emp_response_list)
