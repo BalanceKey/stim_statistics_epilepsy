@@ -1,4 +1,3 @@
-# from tvb.simulator.lab import *
 from nibabel.freesurfer.io import read_geometry
 import matplotlib.pyplot as plt
 import pyvista as pv
@@ -13,12 +12,12 @@ roi = vep_prepare.read_vep_mrtrix_lut()
 sys.path.append('/Users/dollomab/OtherProjects/epi_visualisation/')
 from util.utils import convert_to_pyvista_mesh, load_surfaces, load_bip_coords, plot_cortex_and_subcortex
 
-# pid = 'sub-603cf699f88f' # 1
+pid = 'sub-603cf699f88f' # 1
 # pid = 'sub-2ed87927ff76' # 2
 # pid = 'sub-0c7ab65949e1' # 3
 # pid = 'sub-9c71d0dbd98f' # 4
-pid = 'sub-4b4606a742bd' # 5
-if pid == 'sub-4b4606a742bd':
+# pid = 'sub-4b4606a742bd' # 5
+if pid == 'sub-4b4606a742bd' or pid == 'sub-9c71d0dbd98f':
     subject_dir = f'/Users/dollomab/MyProjects/Epinov_trial/stimulated_patients/{pid}/vep/'
 else:
     subject_dir = f'/Users/dollomab/MyProjects/Epinov_trial/patients/{pid}/vep/'
@@ -54,7 +53,7 @@ for stim_index in induced_seizure_rows: # TODO change back
         if int(channel_nr[0]) == int(channel_nr[1]) + 1 :  # e.g. channel A3-2 instead of A2-3
             channel_nr = [channel_nr[1], channel_nr[0]]    # quick fix: inverting channel numbers here
 
-    if pid == 'sub-4b4606a742bd':
+    if pid == 'sub-4b4606a742bd' or pid == 'sub-9c71d0dbd98f' or pid == 'sub-603cf699f88f':
         freq_val = float(df['frequency'][stim_index].replace(',', '.')) # Hz
         amp_val = float(df['intensity'][stim_index].replace(',', '.'))  # mA
     else:
@@ -85,10 +84,13 @@ bip_gain[:, roi.index('Right-Cerebellar-cortex')] = bip_gain.min()
 
 #%% Plot seizure thresholds as EZ heatmap
 # Import seizure thresholds data
+N = 500
 data_path = '/Users/dollomab/MyProjects/Stimulation/stim_statistics_epilepsy/results/'
-seizure_thresholds_all = np.load(f'{data_path}/{pid}_diff_evolution_results_100_times.npz')['parameters_all']
+results = np.load(f'{data_path}/{pid}_diff_evolution_results_{N}_times.npz')
+seizure_thresholds_all = results['parameters_all']
 seizure_thresholds = np.median(seizure_thresholds_all, axis=0)
 # seizure_thresholds = np.load(f'{data_path}/{pid}_diff_evolution_results.npz')['parameters']
+losses = results['loss']
 
 seizure_thresholds_normalized = (seizure_thresholds - np.nanmin(seizure_thresholds)) / (np.nanmax(seizure_thresholds) - np.nanmin(seizure_thresholds))
 excitability = 1 - seizure_thresholds_normalized
@@ -98,7 +100,7 @@ plt.figure(figsize=(20, 2), tight_layout=True)
 # heatmap = np.abs(m_thresholds-m_thresholds.max())
 plt.bar(np.r_[0:n_regions], (excitability), color='purple', alpha=0.5)
 plt.xticks(np.r_[:len(roi)], roi, rotation=90, fontsize=8)
-plt.title(f'EZ heatmap', fontsize=20)
+plt.title(f'EZ heatmap {pid}', fontsize=20)
 # plt.hlines(0.9, xmin=0, xmax=n_regions)
 plt.xlim(0, n_regions)
 plt.show()
@@ -126,3 +128,88 @@ for region_idx in range(162):                                                   
 p.set_scale(xscale=10, yscale=10, zscale=10, reset_camera=False)
 p.show(interactive=True, full_screen=False)
 p.close()
+
+#%% Plot jaccard similarity performance across methods
+project_dir = '/Users/dollomab/MyProjects/Stimulation/VirtualEpilepsySurgery/'
+
+# Load data
+emp_binary_responses = np.load(f'{project_dir}/similarity_metric/{pid}/{pid}_EZ_empirical_responses.npz')['binary_responses']
+if pid == 'sub-4b4606a742bd':
+    sim1_binary_responses = np.load(f'{project_dir}/similarity_metric/{pid}/{pid}_Clinical_EZ_sim1_responses.npz', allow_pickle=True)['binary_responses']
+    sim2_binary_responses = np.load(f'{project_dir}/similarity_metric/{pid}/{pid}_Custom_EZ_sim2_responses.npz', allow_pickle=True)['binary_responses']
+    sim3_binary_responses = np.load(f'{project_dir}/similarity_metric/{pid}/{pid}_Custom_EZ_sim3_responses.npz', allow_pickle=True)['binary_responses']
+else:
+    sim1_binary_responses = np.load(f'{project_dir}/similarity_metric/{pid}/{pid}_EZ_sim1_responses.npz', allow_pickle=True)['binary_responses']
+    sim2_binary_responses = np.load(f'{project_dir}/similarity_metric/{pid}/{pid}_EZ_sim2_responses.npz', allow_pickle=True)['binary_responses']
+    sim3_binary_responses = np.load(f'{project_dir}/similarity_metric/{pid}/{pid}_EZ_sim3_responses.npz', allow_pickle=True)['binary_responses']
+
+# methods = ['clinical \n EZ', 'model \n based \n EZ', 'differential \n evolution \n EZ']
+methods = ['Clinical \n EZ', 'Updated \n EZ', 'Hierarchical \n EZ', 'Differential \n evolution \n EZ']
+
+# Plot bar plot with jaccard similarities 
+# compute transformed DE losses (percent Jaccard)
+transformed_losses = -losses * 100
+if transformed_losses.size == 0:
+    raise RuntimeError("No DE losses available to plot.")
+
+# Compute Jaccard index (returns 1D array of % values)
+def per_run_jaccard(emp, sim):
+    emp = np.asarray(emp)
+    sim = np.asarray(sim)
+    inter = np.sum((emp == 1) & (sim == 1))
+    union = np.sum((emp == 1) | (sim == 1))
+    return np.array([inter / union * 100])
+
+# per-run jaccards for methods 1-3
+j1_run = per_run_jaccard(emp_binary_responses, sim1_binary_responses)
+j2_run = per_run_jaccard(emp_binary_responses, sim2_binary_responses)
+j3_run = per_run_jaccard(emp_binary_responses, sim3_binary_responses)
+
+# central estimate + uncertainty for DE results
+mean4 = np.nanmean(transformed_losses)
+sem4 = np.nanstd(transformed_losses) / np.sqrt(len(transformed_losses)) # Standard Error of the Mean
+std4 = np.nanstd(transformed_losses)
+
+# prepare data for the 4 bars (means)
+means = [j1_run[0], j2_run[0], j3_run[0], mean4]
+errs = [0, 0, 0, sem4]  # only show uncertainty for DE (SEM)
+
+plt.figure(figsize=(8,5), tight_layout=True)
+
+# main bars
+x_pos = np.arange(4)
+bars = plt.bar(x_pos, means, width=0.6, color='midnightblue', alpha=0.7, yerr=errs, capsize=10)
+
+# overlay jittered individual DE points
+rng = np.random.default_rng(2)
+def jittered_x(base_x, n):
+    return base_x + rng.normal(0, 0.1, size=n)
+x_de = jittered_x(3, len(transformed_losses))
+plt.scatter(x_de, transformed_losses, color='purple', alpha=0.55, s=26, label=f'DE runs (N={len(transformed_losses)})', edgecolors='none')
+
+# violin for the DE distribution (method 4)
+violin = plt.violinplot(transformed_losses, positions=[3], widths=0.6,
+                        showmeans=False, showmedians=False, showextrema=False)
+# style violin: fill and remove black outline
+for pc in violin['bodies']:
+    pc.set_facecolor('lightgrey')
+    pc.set_edgecolor('black')
+    pc.set_alpha(0.7)
+
+# ensure any median line (if present) is hidden
+if 'cmedians' in violin and violin['cmedians'] is not None:
+    try:
+        violin['cmedians'].set_visible(False)
+    except Exception:
+        pass
+
+# labels, ticks, limits
+plt.xticks(x_pos, methods, fontsize=21)
+plt.yticks(np.arange(0, 101, 10), fontsize=12)
+plt.ylabel('Jaccard index (%)', fontsize=24)
+plt.xlabel('EZ definition', fontsize=24)
+plt.ylim([0, 105])
+plt.xlim([-0.35, 3.35])
+plt.legend(frameon=False, loc='upper left', fontsize=16)
+plt.tight_layout()
+plt.show()
