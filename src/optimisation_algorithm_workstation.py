@@ -17,7 +17,7 @@ sys.path.append('/home/epinov/dollomab/VirtualEpilepsySurgery/VEP/core/')
 import vep_prepare 
 
 #%% Empirical data 
-pid = 1
+pid = 3
 patients = {1: 'sub-603cf699f88f', 2: 'sub-2ed87927ff76', 3: 'sub-0c7ab65949e1', 4: 'sub-9c71d0dbd98f', 5: 'sub-4b4606a742bd'}
 subject_dir = f'/data/vep/{patients[pid]}/'
 stimulation_data = f'/home/epinov/dollomab/SEEG_stimulation_neural_fields/stimulation_data_manager_{patients[pid]}.csv'
@@ -73,7 +73,7 @@ elif patients[pid] == 'sub-4b4606a742bd':
     EZ_clinical = ['Right-Orbito-frontal-cortex']
 else:   
     print(f"Unknown type {type} for patient {patients[pid]} !")
-EZ = EZ_test
+EZ = EZ_clinical
 print(f"Using EZ hypothesis for patient {patients[pid]}: {EZ}")
 
 # Compute seizure threshold from EZ vector
@@ -194,7 +194,7 @@ def run_multiple(bounds, obj, n_runs=50, n_processes=50):
     with mp.Pool(processes=n_processes) as pool:
         for i in range(n_runs):
             res = differential_evolution(
-                obj, bounds, maxiter=100, popsize=3,
+                obj, bounds, maxiter=300, popsize=3,
                 workers=pool.map, updating="deferred"
             )
             print(f"Itr {i} - Best Jaccard similarity:", -res.fun)
@@ -213,9 +213,9 @@ def run_multiple(bounds, obj, n_runs=50, n_processes=50):
 #     print("Best Jaccard similarity:", -result.fun)
 #     stim_sim_response_all[i] = result.x
 #     loss_all[i] = result.fun
-N = 100
-n_processes = 50
-stim_sim_response_all, loss_all = run_multiple(bounds, N, n_processes)
+N = 500
+n_processes = 34
+stim_sim_response_all, loss_all = run_multiple(bounds, objective, N, n_processes)
 
 avg_stim_sim_response = stim_sim_response_all.mean(axis=0)
 # avg_stim_sim_response_norm = (avg_stim_sim_response - avg_stim_sim_response.min()) / (avg_stim_sim_response.max() - avg_stim_sim_response.min())
